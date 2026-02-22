@@ -1,0 +1,1 @@
+Hello! Here is a NodeRed flow to bring Amtrak and Via Train locations into TAK. All you need to configure is the TCP out connections to your server. Any ideas are welcome in how to make the marker more rich for viewing!

@@ -1,112 +1,131 @@
-[
-    {
-        "id": "a449259bca500fe5",
-        "type": "tab",
-        "label": "Amtrak2COT",
-        "disabled": false,
-        "info": "",
-        "env": []
-    },
-    {
-        "id": "32d5228fc8fb4179",
-        "type": "inject",
-        "z": "a449259bca500fe5",
-        "name": "Start Polling",
-        "props": [
-            {
-                "p": "payload"
-            }
-        ],
-        "repeat": "30",
-        "crontab": "",
-        "once": true,
-        "onceDelay": 0.1,
-        "topic": "",
-        "payload": "",
-        "payloadType": "str",
-        "x": 150,
-        "y": 100,
-        "wires": [
-            [
-                "70ed6fdf45c7d9b3"
-            ]
-        ]
-    },
-    {
-        "id": "70ed6fdf45c7d9b3",
-        "type": "http request",
-        "z": "a449259bca500fe5",
-        "name": "Amtrak Map GET",
-        "method": "GET",
-        "ret": "obj",
-        "paytoqs": "ignore",
-        "url": "https://asm-backend.transitdocs.com/map",
-        "tls": "",
-        "persist": false,
-        "proxy": "",
-        "insecureHTTPParser": false,
-        "authType": "",
-        "senderr": false,
-        "headers": [],
-        "x": 350,
-        "y": 100,
-        "wires": [
-            [
-                "5af942814bc8f020"
-            ]
-        ]
-    },
-    {
-        "id": "5af942814bc8f020",
-        "type": "function",
-        "z": "a449259bca500fe5",
-        "name": "AmtrakMap2COT",
-        "func": "const trains = msg.payload;\n\nfunction nowCot() {\n    return new Date().toISOString().replace(/\\.\\d{3}Z/, '.0Z');\n}\n\nfunction staleCot(seconds = 120) {\n    return new Date(Date.now() + seconds * 1000).toISOString().replace(/\\.\\d{3}Z/, '.0Z');\n}\n\nfunction getNextStop(stops) {\n    const now = Date.now() / 1000;\n    // Find the first stop that hasn't departed yet (no actual departure)\n    const next = stops.find(s => \n        !s.canceled && \n        s.depart && \n        s.depart.type === \"ESTIMATED\" &&\n        s.sched_depart > now\n    );\n    if (!next) return null;\n\n    const variance = next.depart.variance;\n    const absMin = Math.abs(Math.round(variance / 60));\n    const status = variance >= 0 \n        ? `on time` \n        : `${absMin} min early`;\n    const lateStatus = variance > 0 \n        ? `${Math.round(variance / 60)} min late` \n        : status;\n\n    return `${next.code} (${lateStatus})`;\n}\n\nconst cotEvents = trains\n    .filter(t => t.location)\n    .map(t => {\n        const { latitude, longitude, heading, speed } = t.location;\n        const speedMs = (speed * 0.44704).toFixed(2);\n        const uid = `TRAIN-${t.train_id}`;\n        const callsign = `${t.number} - ${t.name}`;\n\n        const nextStop = getNextStop(t.stops || []);\n        const remarks = [\n            `${t.origin} → ${t.destination}`,\n            `Speed: ${speed} mph`,\n            nextStop ? `Next Stop: ${nextStop}` : null,\n            t.disruption ? `⚠ DISRUPTION REPORTED` : null\n        ].filter(Boolean).join(\" | \");\n\n        return `<event version=\"2.0\" uid=\"${uid}\" type=\"a-f-G-E-V-T\" time=\"${nowCot()}\" start=\"${nowCot()}\" stale=\"${staleCot()}\" how=\"m-g\">` +\n            `<point lat=\"${latitude}\" lon=\"${longitude}\" hae=\"9999999.0\" ce=\"9999999.0\" le=\"9999999.0\"/>` +\n            `<detail>` +\n                `<contact callsign=\"${callsign}\"/>` +\n                `<track course=\"${heading}\" speed=\"${speedMs}\"/>` +\n                `<remarks>${remarks}</remarks>` +\n            `</detail>` +\n        `</event>`;\n    });\n\nmsg.payload = cotEvents;\nreturn msg;",
-        "outputs": 1,
-        "timeout": 0,
-        "noerr": 0,
-        "initialize": "",
-        "finalize": "",
-        "libs": [],
-        "x": 570,
-        "y": 100,
-        "wires": [
-            [
-                "522d0378d40d2225",
-                "4ef57f8901f0c7f5"
-            ]
-        ]
-    },
-    {
-        "id": "522d0378d40d2225",
-        "type": "debug",
-        "z": "a449259bca500fe5",
-        "name": "AmtrakMap2COT Debug",
-        "active": false,
-        "tosidebar": true,
-        "console": false,
-        "tostatus": false,
-        "complete": "payload",
-        "targetType": "msg",
-        "statusVal": "",
-        "statusType": "auto",
-        "x": 690,
-        "y": 40,
-        "wires": []
-    },
-    {
-        "id": "4ef57f8901f0c7f5",
-        "type": "tcp out",
-        "z": "a449259bca500fe5",
-        "name": "",
-        "host": "",
-        "port": "",
-        "beserver": "client",
-        "base64": false,
-        "end": false,
-        "tls": "",
-        "x": 810,
-        "y": 100,
-        "wires": []
+const trains = msg.payload;
+
+const ICONSET_UID = "ad78aafb-83a6-4c07-b2b9-a897a8b6a38f";
+const ICON_NAME = "rail.png";
+
+// Thresholds in minutes
+const LATE_MIN = 5;
+const VERY_LATE_MIN = 30;
+const EXTREMELY_LATE_MIN = 60;
+
+const COLORS = {
+    Green:  "-16711936",
+    Yellow: "-256",
+    Red:    "-65536",
+    Black:  "-16777216",
+    Gray:   "-8355712"
+};
+
+function nowCot() {
+    return new Date().toISOString().replace(/\.\d{3}Z/, '.0Z');
+}
+
+function staleCot(seconds = 120) {
+    return new Date(Date.now() + seconds * 1000).toISOString().replace(/\.\d{3}Z/, '.0Z');
+}
+
+function getVarianceFromAlert(alerts) {
+    if (!alerts || alerts.length === 0) return null;
+    const latest = alerts[alerts.length - 1].text;
+    const match = latest.match(/approximately (\d+) minutes? late/i);
+    return match ? parseInt(match[1]) : null;
+}
+
+function getCurrentVariance(stops) {
+    // Walk through all stops and grab the last ACTUAL departure variance
+    let lastActualVariance = null;
+    for (const stop of stops) {
+        if (stop.depart && stop.depart.type === "ACTUAL") {
+            lastActualVariance = stop.depart.variance;
+        }
     }
-]
+    if (lastActualVariance !== null) return lastActualVariance;
+
+    // Fall back to the next ESTIMATED stop
+    const now = Date.now() / 1000;
+    const nextEstimated = stops.find(s =>
+        !s.canceled &&
+        s.depart &&
+        s.depart.type === "ESTIMATED" &&
+        s.sched_depart > now
+    );
+    if (nextEstimated) return nextEstimated.depart.variance;
+
+    return 0;
+}
+
+function getNextStop(stops) {
+    const now = Date.now() / 1000;
+    const next = stops.find(s =>
+        !s.canceled &&
+        s.depart &&
+        s.depart.type === "ESTIMATED" &&
+        s.sched_depart > now
+    );
+    if (!next) return null;
+
+    const variance = next.depart.variance;
+    const absMin = Math.abs(Math.round(variance / 60));
+    const status = variance > 0
+        ? `${absMin} min late`
+        : variance < 0
+        ? `${absMin} min early`
+        : `on time`;
+
+    return { code: next.code, status };
+}
+
+function getColorName(disruption, varianceMin) {
+    if (disruption) return "Gray";
+    if (varianceMin >= EXTREMELY_LATE_MIN) return "Black";
+    if (varianceMin >= VERY_LATE_MIN) return "Red";
+    if (varianceMin >= LATE_MIN) return "Yellow";
+    return "Green";
+}
+
+const cotEvents = trains
+    .filter(t => t.location)
+    .map(t => {
+        const { latitude, longitude, heading, speed } = t.location;
+        const speedMs = (speed * 0.44704).toFixed(2);
+        const uid = `TRAIN-${t.train_id}`;
+        const callsign = `${t.number} - ${t.name}`;
+
+        const stops = t.stops || [];
+
+        // Use alert-derived minutes if available, fall back to variance calculation
+        const alertVarianceMin = getVarianceFromAlert(t.alerts);
+        const varianceMin = alertVarianceMin !== null
+            ? alertVarianceMin
+            : Math.round(getCurrentVariance(stops) / 60);
+
+        const nextStop = getNextStop(stops);
+        const colorName = getColorName(t.disruption, varianceMin);
+        const argb = COLORS[colorName];
+
+        const latestAlert = t.alerts && t.alerts.length > 0
+            ? t.alerts[t.alerts.length - 1].text
+            : null;
+
+        const remarks = [
+            `${t.origin} → ${t.destination}`,
+            `Speed: ${speed} mph`,
+            nextStop ? `Next Stop: ${nextStop.code} (${nextStop.status})` : null,
+            t.disruption ? `⚠ DISRUPTION REPORTED` : null,
+            latestAlert ? `🚨 ${latestAlert}` : null
+        ].filter(Boolean).join(" | ");
+
+        return `<event version="2.0" uid="${uid}" type="a-f-G-E-V-T" time="${nowCot()}" start="${nowCot()}" stale="${staleCot()}" how="m-g">` +
+            `<point lat="${latitude}" lon="${longitude}" hae="9999999.0" ce="9999999.0" le="9999999.0"/>` +
+            `<detail>` +
+                `<contact callsign="${callsign}"/>` +
+                `<track course="${heading}" speed="${speedMs}"/>` +
+                `<remarks>${remarks}</remarks>` +
+                `<usericon iconsetpath="${ICONSET_UID}/Shapes/${ICON_NAME}"/>` +
+                `<color argb="${argb}"/>` +
+            `</detail>` +
+        `</event>`;
+    });
+
+msg.payload = cotEvents;
+return msg;

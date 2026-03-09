@@ -57,7 +57,7 @@ A Node-RED function node that pulls live Amtrak (and VIA Rail) train positions f
 - Return: `a parsed JSON object`
 
 **Function Node**
-- Paste the contents of `function.js`
+- Paste the contents of `AmtrakMap2COT.json' into a function node
 
 **TCP Out Node**
 - Address: Your TAK server or ATAK device IP

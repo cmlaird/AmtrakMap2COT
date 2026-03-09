@@ -1,6 +1,6 @@
 # Amtrak Train Tracker for ATAK
 
-A Node-RED function mode that pulls live Amtrak (and VIA Rail) train positions from [TransitDocs](https://transitdocs.com) and pushes them to ATAK as Cursor on Target (CoT) events. Trains are displayed on the ATAK map with color-coded icons reflecting their on-time status.
+A Node-RED function node that pulls live Amtrak (and VIA Rail) train positions from [TransitDocs](https://transitdocs.com) and pushes them to ATAK as Cursor on Target (CoT) events. Trains are displayed on the ATAK map with color-coded icons reflecting their on-time status.
 
 ---
 
